@@ -129,6 +129,78 @@ python -m tests.demo_autotune # AlphaHarness 在 NT 线上实时调它
 
 机器人侧 shim 是 4 处小改(Constants 的 `tuningMode`、IO 的 `setShooterPID` hook、其 Phoenix6 实现、以及 `ShooterSubsystem.periodic` 里受门控的 `ifChanged` 再配置),`tuningMode=false` 时全是死代码。看 diff:`git -C ~/Downloads/8810_work/2026_8810_main show AlphaHarness`。
 
+## 接到机器人(scope a 集成指南)
+
+要让 AlphaHarness 在你的机器人上真正写增益、自整定,机器人侧需要一个受 `tuningMode` 守卫的 shim。下面以 8810 季后赛新车(`8810-2026-offseason`,AdvantageKit + 通用 `frc.lib.io.MotorIO` 架构、`Drum` 是飞轮)为例;任何 AdvantageKit + Phoenix6 机器人同理。
+
+### 读取路径通常大部分已就位
+
+- **AdvantageKit + NT4Publisher** → 所有 `@AutoLog` input 和 `Logger.recordOutput` 已实时在 NT 上,AlphaHarness 直接 `connect` 就能发现。
+- setpoint 若已 log(如新车的 `Logger.recordOutput("Shooter/Drum/GoalRps", …)`)就是 AlphaHarness 要的稠密 setpoint 输出。
+- 测速若经 IOInputs log(如 `MotorIOInputs.velocityRadPerSec`)也已在 NT 上。
+
+> ⚠️ **单位坑**:`GoalRps` 是 **RPS**、`velocityRadPerSec` 是 **rad/s**。把 AlphaHarness 指向统一单位——最省事加一句 `Logger.recordOutput("Shooter/Drum/MeasuredRps", Units.radiansToRotations(inputs.velocityRadPerSec))`。单位混了指标全是垃圾。
+
+### 要加的 3 块(`tuningMode=false` 时全是死代码)
+
+**1. 全局 `tuningMode` flag**
+```java
+// Constants.java(或一个 TuningConstants)
+public static final boolean tuningMode = false; // 比赛安全默认值
+```
+
+**2. 可调增益通道** —— 从 `2026_8810_main` 的 `frc/robot/util/` 港 `LoggedTunableNumber`(MIT,FRC 6328;包 `LoggedNetworkNumber` + 加 `/Tuning/` 前缀):
+```java
+private final LoggedTunableNumber kP = new LoggedTunableNumber("Shooter/Drum/kP", /* ShooterConstants 里的 drum kP */);
+private final LoggedTunableNumber kD = new LoggedTunableNumber("Shooter/Drum/kD", /* ShooterConstants 里的 drum kD */);
+// 按需再加 kI、kS、kV
+```
+→ topic `/Tuning/Shooter/Drum/kP` …,AlphaHarness 读写它们。
+
+**3. 再配置 hook**(缺的那块 —— `withSlot0` 只在 boot 时 apply 一次)—— 在 IO 接口加 `setPID`,在 Phoenix6 实现里 re-apply Slot0,在 periodic 里受门控调(加在 `MotorIO`/`MotorSubsystem` 基类则所有机构白拿):
+```java
+// frc/lib/io/MotorIO.java
+public default void setPID(double kP, double kI, double kD, double kS, double kV) {}
+
+// frc/lib/io/MotorIOPhoenix6.java
+@Override
+public void setPID(double kP, double kI, double kD, double kS, double kV) {
+  var slot0 = new Slot0Configs();
+  slot0.kP = kP; slot0.kI = kI; slot0.kD = kD; slot0.kS = kS; slot0.kV = kV;
+  tryUntilOk(5, () -> talon.getConfigurator().apply(slot0, 0.25)); // 不动 limits / MotionMagic
+}
+
+// Drum.periodic()(或 MotorSubsystem 基类,可复用)
+if (Constants.tuningMode) {
+  LoggedTunableNumber.ifChanged(hashCode(),
+      v -> io.setPID(v[0], v[1], v[2], v[3], v[4]), kP, kI, kD, kS, kV);
+}
+```
+**`ifChanged` 是承重墙**:`getConfigurator().apply()` 阻塞(~0.1–0.25 s),每 20 ms loop 都调会打爆 loop 预算——只在变了时 apply。
+
+### 把 AlphaHarness 指过去
+```
+measurement_key = "Shooter/Drum/MeasuredRps"            # 加这个输出(见单位坑)
+setpoint_key    = "/Tuning/Shooter/Drum/Setpoint"        # tuningMode 下 Drum 读的 tunable(自主用)
+gains           = /Tuning/Shooter/Drum/{kP,kD,...}
+```
+- **自主**(AlphaHarness 经 `autotune_shooter` 自己命令 step):把 Drum setpoint 暴露成 `/Tuning/...` tunable,`tuningMode` 开时 Drum 读它。
+- **辅助**(人手 spin up、AlphaHarness 只测量):不需写 setpoint —— 用 `capture_step_response`,机器人侧零改动。
+
+### 域注记(有个 2026 代码没有的选择)
+`MotorIOPhoenix6` 同时支持 `VelocityVoltage` 和 `VelocityTorqueCurrentFOC`。跑 **VOLTAGE** 模式,WPILib **SysId** 前馈(kS/kV,电压域)能直接作种子塞进去;跑 **TORQUE_CURRENT_FOC** 则电压域前馈不做转换塞不进——kS/kV 得经验调(AlphaHarness 能调)。
+
+### Checklist
+- [ ] 加 `MeasuredRps` 输出(单位修正)
+- [ ] `tuningMode` flag
+- [ ] 港 `LoggedTunableNumber` + 加 Drum 增益 tunable
+- [ ] `MotorIO.setPID` + `MotorIOPhoenix6` 实现 + periodic 受门控 `ifChanged`
+- [ ] (自主)Drum 在 tuningMode 下读一个 `/Tuning` setpoint
+- [ ] Sim:`connect` → `autotune_shooter` 收敛
+- [ ] 真车:人工 enable、Test 模式、限位设好后调参
+
+---
+
 ## 安全(从 scope a 起重要)
 
 `isFMSAttached()` → 拒绝一切调参。真车**永远人工 enable、agent 只建议**(LLM 不能 enable 机器人)。完全自主只活在 sim 里。软限位 + stator 限流 + motor-safety 心跳设在 IO 里、不在调参逻辑里,所以即使某个 loop 卡死它们也还在。
