@@ -65,7 +65,17 @@ def extract_signals(path: str, keys) -> dict:
                 continue
             out[name][0].append(rec.getTimestamp() / 1e6)
             out[name][1].append(val)
-    return {k: (np.asarray(ts, float), np.asarray(vs, float)) for k, (ts, vs) in out.items()}
+    # WPILOG records are not guaranteed timestamp-sorted; sort each channel so edge
+    # detection (_edge_time) sees them chronologically, like metrics already does for measurements.
+    result = {}
+    for k, (ts, vs) in out.items():
+        ta = np.asarray(ts, float)
+        va = np.asarray(vs, float)
+        if ta.size:
+            order = np.argsort(ta, kind="stable")
+            ta, va = ta[order], va[order]
+        result[k] = (ta, va)
+    return result
 
 
 def analyze_step(path: str, measurement_key: str, setpoint_key: str | None = None,

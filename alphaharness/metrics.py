@@ -92,7 +92,12 @@ def _damping_from_peak(overshoot_pct: float, peak_time: float) -> dict:
     """
     out = {"damping_ratio": None, "damped_freq_hz": None,
            "natural_freq_hz": None, "regime": "overdamped"}
-    if overshoot_pct < _MIN_OVERSHOOT_PCT or peak_time <= EPS:
+    if overshoot_pct < _MIN_OVERSHOOT_PCT:
+        return out                       # genuinely no overshoot -> overdamped/critical
+    if peak_time <= EPS:
+        # overshoot present but the peak landed on the first sample -> can't estimate zeta,
+        # but it is NOT overdamped (it overshot). Flag rather than mislabel.
+        out["regime"] = "peak_unresolved"
         return out
     if overshoot_pct >= 100.0:
         # Mp >= 1: the 2nd-order zeta formula breaks (it would give zeta <= 0).
@@ -154,6 +159,8 @@ def compute_step_response_metrics(
     """
     t = np.asarray(t_meas, dtype=float)
     y = np.asarray(y_meas, dtype=float)
+    if not np.isfinite(target):
+        raise ValueError("target is NaN/inf (faulted or unresolved setpoint stream)")
     if t.size != y.size:
         raise ValueError(f"t_meas/y_meas length mismatch: {t.size} vs {y.size}")
     if t.size < 3:

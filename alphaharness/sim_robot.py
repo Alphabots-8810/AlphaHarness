@@ -34,6 +34,8 @@ def second_order_step(tau: float, a: float, b: float, zeta: float, wn: float) ->
     """
     if tau <= 0:
         return a
+    if wn <= 0:
+        return a          # degenerate (no dynamics); avoids div-by-zero in the overdamped branch
     span = b - a
     if zeta < 1.0:
         wd = wn * math.sqrt(1 - zeta**2)

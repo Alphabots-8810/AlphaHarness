@@ -83,7 +83,7 @@ python -m pytest tests/test_wpilog.py -q                                      # 
 ## 测试
 
 ```bash
-python -m pytest tests/ -v          # 28 个单测:metrics + step-resolution + wpilog + autotune + 回归
+python -m pytest tests/ -v          # 34 个单测:metrics + step-resolution + wpilog + autotune + 回归
 python -m tests.e2e_sim             # 完整 NT4 线 vs 解析 ground truth(需 sim --once)
 python -m tests.e2e_mcp             # MCP 传输层端到端(需 sim --period 4)
 python -m tests.demo_autotune       # NT 线上实时自整定(需 alphaharness-plant 在跑)

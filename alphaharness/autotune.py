@@ -51,6 +51,8 @@ def autotune(evaluate, *, seed, bounds, steps, cost=shooter_cost,
     """
     dims = list(steps.keys())
     x = dict(seed)
+    for d in dims:                       # clip the SEED into bounds too (only trials were clipped),
+        x[d] = _clip(x[d], *bounds[d])   # so eval-0 / a flat surface can't command/return OOB gains
     step = dict(steps)
     history = []
 

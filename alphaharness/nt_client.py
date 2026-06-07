@@ -165,6 +165,8 @@ class NTClient:
             t_step = NTClient._edge_time(sp_samples)
             if t_step is None:
                 t_step = NTClient._onset_from_measurement(t_meas, y_meas)
+            if t_step is None:                         # target known but no edge/movement
+                t_step = float(np.asarray(t_meas, float)[0])
             return float(t_step), float(target), "provided"
 
         # 2) infer from a sparse setpoint edge
@@ -178,6 +180,13 @@ class NTClient:
             # infer the instant from the measurement's own onset
             const_target = sp_samples[-1][1]
             t_step = NTClient._onset_from_measurement(t_meas, y_meas)
+            if t_step is None:
+                # no edge AND the measurement never moved -> no real step (idle window).
+                # Refuse rather than fabricate confident metrics from noise.
+                raise ValueError(
+                    "no setpoint edge in the window and the measurement never moved — "
+                    "no step to analyze (idle window / step missed). Start the capture "
+                    "before commanding the step, or pass target= explicitly.")
             return float(t_step), float(const_target), "inferred_constant"
 
         raise ValueError("no setpoint samples and no explicit target: cannot "
@@ -218,6 +227,8 @@ class NTClient:
         if t_meas.size < 3:
             raise ValueError(f"only {t_meas.size} samples on '{measurement_key}'")
         t_step = self._onset_from_measurement(t_meas, y_meas)
+        if t_step is None:                             # pre-zeroed then stepped, so it should move
+            t_step = float(t_meas[0])
         m = compute_step_response_metrics(t_meas, y_meas, t_step, float(target),
                                           t_cur=t_cur, i_cur=i_cur, current_limit=current_limit)
         m["_step_source"] = "active_command"
@@ -236,13 +247,25 @@ class NTClient:
 
     @staticmethod
     def _onset_from_measurement(t_meas, y_meas):
-        """Fallback: detect step onset from when the measurement starts moving."""
+        """Onset time of the step, or None if the measurement never significantly moved.
+
+        Noise is estimated robustly as median |consecutive diff| (immune to the rising edge
+        itself — std of the first samples would over-estimate when the step starts at t0).
+        A window whose whole excursion (ptp) is within ~10x that noise is treated as pure
+        noise / no step, so an idle trace can't be mistaken for a step.
+        """
         y = np.asarray(y_meas, float)
         t = np.asarray(t_meas, float)
-        y0 = np.median(y[: max(3, y.size // 20)])
-        rng = max(np.ptp(y), 1e-6)
-        moved = np.where(np.abs(y - y0) > 0.1 * rng)[0]
-        return float(t[moved[0]]) if moved.size else float(t[0])
+        n0 = max(3, y.size // 20)
+        y0 = float(np.median(y[:n0]))
+        dif = np.abs(np.diff(y))
+        noise = float(np.median(dif)) if dif.size else 0.0
+        ptp = float(np.ptp(y))
+        if ptp <= 10.0 * noise:                 # no real excursion beyond noise -> not a step
+            return None
+        thresh = max(0.1 * max(ptp, 1e-6), 6.0 * noise)
+        moved = np.where(np.abs(y - y0) > thresh)[0]
+        return float(t[moved[0]]) if moved.size else None
 
     def capture_step_response(self, measurement_key: str, setpoint_key: str | None,
                               duration_s: float = 4.0, current_key: str | None = None,
