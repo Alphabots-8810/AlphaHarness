@@ -103,6 +103,20 @@ def capture_step_response(measurement_key: str,
         current_limit=current_limit, allow_profile=allow_profile)
 
 
+# ----------------------------------------------------------------- write (scope a)
+@mcp.tool()
+def set_gain(key: str, value: float) -> dict:
+    """Write a control gain over NT (scope-a). RESTRICTED to /Tuning/* keys only.
+
+    SAFETY — read before use: this only takes effect when the robot firmware has
+    tuningMode=true AND a HUMAN has enabled it in Test mode (an LLM cannot enable a
+    robot). Do NOT use on an FMS-attached robot. Last-writer-wins per topic, so don't
+    write a key a human is editing in AdvantageScope at the same time. Pair with
+    capture_step_response to close the tune loop: read response -> propose gain -> set_gain -> re-measure.
+    """
+    return _client.set_gain(key, value)
+
+
 # ----------------------------------------------------------------- offline (scope b)
 @mcp.tool()
 def list_wpilog_signals(path: str, prefix: str = "") -> dict:

@@ -35,6 +35,7 @@ class NTClient:
         self.identity = identity
         self._multi = None
         self.target_desc = None
+        self._gain_pubs = {}      # key -> publisher (kept alive so written values persist)
 
     # ------------------------------------------------------------------ conn
     def connect(self, server: str | None = None, team: int | None = None,
@@ -70,6 +71,9 @@ class NTClient:
                 "topics_known": len(self.inst.getTopicInfo())}
 
     def disconnect(self):
+        for p in self._gain_pubs.values():
+            p.close()
+        self._gain_pubs = {}
         if self._multi is not None:
             self._multi.close()
             self._multi = None
@@ -85,6 +89,27 @@ class NTClient:
                 for ti in infos if ti.name.startswith(prefix)]
         rows.sort(key=lambda r: r["name"])
         return rows[:limit] if limit else rows
+
+    # ------------------------------------------------------------------ write
+    def set_gain(self, key: str, value: float) -> dict:
+        """Write a gain over NT (scope-a capability). RESTRICTED to /Tuning/* only.
+
+        SAFETY: this only takes effect when the robot has Constants.tuningMode=true AND is
+        enabled by a HUMAN in Test mode. An LLM cannot enable a robot. Never call this on a robot
+        that is FMS-attached. Last-writer-wins on the topic — don't fight a human editing /Tuning
+        in AdvantageScope at the same time.
+        """
+        if not key.startswith("/Tuning/"):
+            raise ValueError(
+                f"AlphaHarness only writes under /Tuning/* (the gain channel); refusing '{key}'. "
+                "Writing arbitrary robot state is out of scope.")
+        pub = self._gain_pubs.get(key)
+        if pub is None:
+            pub = self.inst.getDoubleTopic(key).publish()
+            self._gain_pubs[key] = pub
+        pub.set(float(value))
+        self.inst.flush()
+        return {"key": key, "value": float(value), "note": "takes effect only if robot tuningMode=true + human-enabled"}
 
     def snapshot(self, key: str, settle: float = 0.3, default: float = float("nan")) -> float:
         """Return the current value of a double topic (retained value)."""

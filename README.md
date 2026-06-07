@@ -6,8 +6,10 @@ The third in Alphabots' `Alpha*` line: **AlphaSim** simulates the shot offline;
 **AlphaHarness** watches the real robot online and measures how its loops respond —
 the foundation for an agent that tunes them.
 
-> v0 scope **(c)**: Claude can *watch and measure* the robot. It does **not** write
-> gains back (that's scope **a** — deliberately out of v0; see [Roadmap](#roadmap)).
+> **Scope:** **(c)** read-only metric core + **(b)** offline `.wpilog` arm + **(a)** a
+> human-gated `set_gain` write. `set_gain` only takes effect when the robot firmware has
+> `tuningMode=true` AND a human has enabled it (an LLM can't enable a robot; never on FMS).
+> Validated against 8810's real robot code in sim (see [Validated on the real robot](#validated-on-the-real-robot)).
 
 ---
 
@@ -146,11 +148,32 @@ on a fiction the wire never delivers. `e2e_sim` reads the sim's ground truth **o
 - **(b) — offline WPILOG arm:** the SAME metric layer + step-resolution pointed at
   post-match `.wpilog` (8810 already writes them) via `wpiutil.log.DataLogReader`. ✅
   Tools `list_wpilog_signals` / `analyze_wpilog_step`; no robot, no live connection.
-- **(a) — the end state:** closed-loop auto-tune. Needs the robot-side `LoggedTunableNumber
-  → ifChanged → getConfigurator().apply()` re-config shim + a `tuningMode` flag + soft/
-  current limits + the no-FMS / Test-mode / human-enable safety gating. **Sim-first via
-  Maple-Sim before any real-hardware closed loop** — and replay can't re-tune a feedback
-  gain (it changes future inputs), so pre-screen against a SysId/Maple-Sim plant model.
+- **(a) — closed-loop, harness + robot halves built & demoed:**
+  - Harness side: `set_gain` writes `/Tuning/*` (human-gated, see above). ✅
+  - Robot side: the `LoggedTunableNumber → ifChanged → getConfigurator().apply()` re-config
+    shim + a `tuningMode` flag on 8810's `AlphaHarness` git branch. ✅ (see below)
+  - Demoed: AlphaHarness wrote `/Tuning/Shooter/kP` and the real robot **consumed it**
+    (AdvantageKit mirror `/AdvantageKit/NetworkInputs/Tuning/Shooter/kP` updated). ✅
+  - **Not yet:** the autonomous optimize loop (perturb → score → propose → apply → repeat),
+    and the Phoenix6 `apply()` itself only runs in REAL mode (sim uses `ShooterIOSim`, no
+    TalonFX). Sim-first via Maple-Sim before any real-hardware closed loop; replay can't
+    re-tune a feedback gain (it changes future inputs) — pre-screen against a plant model.
+
+## Validated on the real robot
+
+Beyond the synthetic substrate, AlphaHarness is validated against **8810's actual robot
+code** (`~/Downloads/8810_work/2026_8810_main`, branch `AlphaHarness`) running in
+`./gradlew simulateJava`:
+
+- **Discovery:** connected and saw the real **367-topic** AdvantageKit tree, including the
+  scope-a shim's `/AdvantageKit/RealOutputs/Shooter/SetpointRPS` + `/Tuning/Shooter/{kP..kV}`.
+  (`python -m tests.probe_real_tree`)
+- **Write→consume:** `set_gain("/Tuning/Shooter/kP", 9.0)` → robot read it → AdvantageKit
+  recorded `9.0` at the mirror. (`python -m tests.probe_write_loop`)
+
+The robot-side shim is 4 small edits (Constants `tuningMode`, an IO `setShooterPID` hook,
+its Phoenix6 impl, and the gated `ifChanged` re-apply in `ShooterSubsystem.periodic`), all
+dead when `tuningMode=false`. Review the diff: `git -C ~/Downloads/8810_work/2026_8810_main show AlphaHarness`.
 
 ## Safety (matters from scope a onward)
 
