@@ -16,6 +16,7 @@ dev = ["pytest>=8"]
 alphaharness-mcp = "alphaharness.server:main"
 alphaharness-sim = "alphaharness.sim_robot:main"
 alphaharness-simlog = "alphaharness.sim_log:main"
+alphaharness-plant = "alphaharness.sim_plant:main"
 
 [build-system]
 requires = ["setuptools>=68"]

@@ -72,8 +72,8 @@ Then ask Claude: *"analyze the shooter step in `/path/to/match.wpilog`."* (MCP t
 > *"Connect to 127.0.0.1, list the shooter signals, capture a step response on the
 > shooter and tell me if kD looks low."*
 
-Tools exposed: `connect` · `status` · `list_signals` · `read_signal` ·
-`capture_step_response`.
+Tools (9): `connect` · `status` · `list_signals` · `read_signal` · `capture_step_response`
+· `set_gain` · `autotune_shooter` · `list_wpilog_signals` · `analyze_wpilog_step`.
 
 ## Point it at the real robot / WPILib sim
 
@@ -114,9 +114,10 @@ so telemetry is live on NT today), the 6328 `LoggedTunableNumber` wrapper with i
 ## Tests
 
 ```bash
-python -m pytest tests/ -v          # 15 unit tests: metrics + step-resolution + offline wpilog
+python -m pytest tests/ -v          # 20 unit tests: metrics + step-resolution + wpilog + autotune
 python -m tests.e2e_sim             # full NT4 wire vs analytic ground truth (needs sim --once)
 python -m tests.e2e_mcp             # MCP transport end-to-end (needs sim --period 4)
+python -m tests.demo_autotune       # live auto-tune over NT (needs alphaharness-plant running)
 ```
 
 Tests run on clean **and** noisy/quantized signals — a clean-curve-only test would pass
@@ -154,10 +155,28 @@ on a fiction the wire never delivers. `e2e_sim` reads the sim's ground truth **o
     shim + a `tuningMode` flag on 8810's `AlphaHarness` git branch. ✅ (see below)
   - Demoed: AlphaHarness wrote `/Tuning/Shooter/kP` and the real robot **consumed it**
     (AdvantageKit mirror `/AdvantageKit/NetworkInputs/Tuning/Shooter/kP` updated). ✅
-  - **Not yet:** the autonomous optimize loop (perturb → score → propose → apply → repeat),
-    and the Phoenix6 `apply()` itself only runs in REAL mode (sim uses `ShooterIOSim`, no
-    TalonFX). Sim-first via Maple-Sim before any real-hardware closed loop; replay can't
-    re-tune a feedback gain (it changes future inputs) — pre-screen against a plant model.
+  - **The autonomous optimize loop** (`autotune_shooter`): perturb → measure → score →
+    `set_gain` → repeat, coordinate pattern search over (kP, kD). ✅ Demoed live over NT
+    against a closed-loop flywheel — tuned a sluggish kP=3 (14% SSE) down to kP=13/kD=0.2
+    (0% overshoot, 5% SSE), cost −57%, in 18 NT evaluations. (`python -m tests.demo_autotune`)
+  - **Not yet:** the Phoenix6 `apply()` itself only runs in REAL mode (sim uses
+    `ShooterIOSim`, no TalonFX), and the autotuner is validated on a synthetic flywheel /
+    the plant model — not a real shooter. Sim-first via Maple-Sim before any real-hardware
+    closed loop; replay can't re-tune a feedback gain (it changes future inputs).
+
+## The auto-tuner
+
+```bash
+alphaharness-plant            # a closed-loop flywheel NT server whose response depends on the gains
+python -m tests.demo_autotune # AlphaHarness tunes it live over NT
+```
+
+`autotune.py` is a derivative-free coordinate pattern search minimizing
+`cost = rise + 0.012·overshoot² + 0.05·|SSE%|` (always-defined metrics, so the surface stays
+smooth even when settle-to-band is undefined). The evaluator is pluggable: the **same**
+optimizer runs in-process against `plant.py` (fast tests) or over NT via `set_gain` +
+`command_step_and_capture` (live). Bounded gains + an eval budget keep it out of unstable
+territory; on real hardware it's human-gated (tuningMode + Test-mode enable, never FMS).
 
 ## Validated on the real robot
 

@@ -117,6 +117,38 @@ def set_gain(key: str, value: float) -> dict:
     return _client.set_gain(key, value)
 
 
+@mcp.tool()
+def autotune_shooter(target_rps: float = 60.0, budget: int = 24,
+                     seed_kP: float = 3.0, seed_kD: float = 0.0,
+                     measurement_key: str = "/AdvantageKit/RealOutputs/Shooter/MeasuredRPS",
+                     setpoint_key: str = "/Tuning/SHooterRPS",
+                     current_key: str = "/AdvantageKit/RealOutputs/Shooter/StatorCurrent") -> dict:
+    """Autonomously tune the shooter kP/kD: perturb → measure → score → set_gain → repeat.
+
+    The closed loop AlphaHarness was built for. Requires connect() first and the robot in
+    tuningMode (sim, or a human-enabled Test-mode real robot — never FMS). Leaves the robot
+    on the best gains it found and returns the gains, cost, and per-evaluation history.
+    """
+    from .autotune import autotune as _autotune
+
+    def evaluate(g):
+        _client.set_gain("/Tuning/Shooter/kP", g["kP"])
+        _client.set_gain("/Tuning/Shooter/kD", g["kD"])
+        return _client.command_step_and_capture(
+            measurement_key, setpoint_key, target_rps, duration_s=2.2, current_key=current_key)
+
+    res = _autotune(evaluate, seed={"kP": seed_kP, "kD": seed_kD},
+                    bounds={"kP": (0.5, 30.0), "kD": (0.0, 1.5)},
+                    steps={"kP": 4.0, "kD": 0.2}, budget=budget)
+    _client.set_gain("/Tuning/Shooter/kP", res["best_gains"]["kP"])
+    _client.set_gain("/Tuning/Shooter/kD", res["best_gains"]["kD"])
+    bm = res["best_metrics"]
+    return {"best_gains": res["best_gains"], "best_cost": res["best_cost"], "evals": res["evals"],
+            "best_metrics": {k: bm.get(k) for k in
+                             ("overshoot_pct", "rise_time_s", "settle_time_2pct", "steady_state_error_pct")},
+            "history": res["history"]}
+
+
 # ----------------------------------------------------------------- offline (scope b)
 @mcp.tool()
 def list_wpilog_signals(path: str, prefix: str = "") -> dict:

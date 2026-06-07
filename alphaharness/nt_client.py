@@ -183,6 +183,46 @@ class NTClient:
         raise ValueError("no setpoint samples and no explicit target: cannot "
                          "resolve the step. Pass target=, or subscribe a setpoint key.")
 
+    def command_step_and_capture(self, measurement_key: str, setpoint_key: str, target: float,
+                                 duration_s: float = 2.2, current_key: str | None = None,
+                                 current_limit: float | None = None, pre_zero_s: float = 0.7,
+                                 hi_rate: bool = True) -> dict:
+        """Active capture for closed-loop tuning: AlphaHarness ITSELF commands the step.
+
+        Zeroes the setpoint and lets it settle, then subscribes, commands the step, and
+        captures the response — so the optimizer controls perturbation timing. target is
+        provided; t_step comes from the measurement onset (pre-zeroed to ~0).
+        """
+        self.set_gain(setpoint_key, 0.0)
+        time.sleep(pre_zero_s)
+        opts = ntcore.PubSubOptions(sendAll=True, periodic=0.02 if hi_rate else 0.1,
+                                    keepDuplicates=True, pollStorage=int(duration_s * 200) + 500)
+        msub = self.inst.getDoubleTopic(measurement_key).subscribe(float("nan"), opts)
+        csub = (self.inst.getDoubleTopic(current_key).subscribe(float("nan"), opts)
+                if current_key else None)
+        msub.readQueue()
+        if csub:
+            csub.readQueue()
+        self.set_gain(setpoint_key, float(target))     # the step (AlphaHarness-commanded edge)
+        time.sleep(duration_s)
+        mq = msub.readQueue()
+        msub.close()
+        t_meas = np.array([(v.serverTime or v.time) / 1e6 for v in mq], float)
+        y_meas = np.array([v.value for v in mq], float)
+        t_cur = i_cur = None
+        if csub:
+            cq = csub.readQueue()
+            csub.close()
+            t_cur = np.array([(v.serverTime or v.time) / 1e6 for v in cq], float)
+            i_cur = np.array([v.value for v in cq], float)
+        if t_meas.size < 3:
+            raise ValueError(f"only {t_meas.size} samples on '{measurement_key}'")
+        t_step = self._onset_from_measurement(t_meas, y_meas)
+        m = compute_step_response_metrics(t_meas, y_meas, t_step, float(target),
+                                          t_cur=t_cur, i_cur=i_cur, current_limit=current_limit)
+        m["_step_source"] = "active_command"
+        return m
+
     @staticmethod
     def _edge_time(sp_samples):
         """First time the setpoint value changes (the sparse edge)."""
