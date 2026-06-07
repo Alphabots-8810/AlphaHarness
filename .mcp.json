@@ -1,0 +1,9 @@
+{
+  "mcpServers": {
+    "alphaharness": {
+      "command": "/Users/justaboringname/Projects/AlphaHarness/.venv/bin/alphaharness-mcp",
+      "args": [],
+      "env": {}
+    }
+  }
+}
