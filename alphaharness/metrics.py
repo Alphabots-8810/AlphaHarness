@@ -94,6 +94,11 @@ def _damping_from_peak(overshoot_pct: float, peak_time: float) -> dict:
            "natural_freq_hz": None, "regime": "overdamped"}
     if overshoot_pct < _MIN_OVERSHOOT_PCT or peak_time <= EPS:
         return out
+    if overshoot_pct >= 100.0:
+        # Mp >= 1: the 2nd-order zeta formula breaks (it would give zeta <= 0).
+        # This is past underdamped — flag it; never emit a negative ratio as "underdamped".
+        out["regime"] = "unstable"
+        return out
 
     Mp = overshoot_pct / 100.0
     lnMp = np.log(Mp)
@@ -157,6 +162,14 @@ def compute_step_response_metrics(
     order = np.argsort(t)
     t, y = t[order], y[order]
 
+    # drop non-finite samples: a faulted sensor publishing NaN must not poison
+    # argmax/mean (np.argmax picks NaN, and max(0.0, nan)==0.0 hides it as 0% overshoot)
+    finite = np.isfinite(t) & np.isfinite(y)
+    if not finite.all():
+        t, y = t[finite], y[finite]
+        if t.size < 3:
+            raise ValueError("need >=3 finite measurement samples (got NaN/inf)")
+
     pre = t < t_step
     post = ~pre
     if post.sum() < 3:
@@ -219,7 +232,7 @@ def compute_step_response_metrics(
             settle_t = float(tp_arr[last_out + 1]) if last_out + 1 < tp_arr.size else None
         else:
             settle_t = float(tp_arr[0])
-        settle[f"settle_time_{int(band*100)}pct"] = settle_t
+        settle[f"settle_time_{band*100:g}pct"] = settle_t
 
     # --- steady-state error on RAW tail (last 20% of post window, >=5 samples) ---
     n_tail = max(5, int(0.2 * yp.size))
@@ -233,14 +246,25 @@ def compute_step_response_metrics(
     damping = _damping_from_peak(overshoot_pct, peak_time)
 
     # --- current / saturation (optional) ---
+    # If t_cur is given, restrict to the POST-step window so saturation_fraction
+    # describes the step (not diluted by pre-step idle and capture length).
     cur = {"peak_current": None, "saturated": None, "saturation_fraction": None}
     if i_cur is not None:
         ic = np.asarray(i_cur, dtype=float)
-        cur["peak_current"] = float(np.max(np.abs(ic)))
-        if current_limit is not None:
-            sat = np.abs(ic) >= (current_limit - EPS)
-            cur["saturated"] = bool(sat.any())
-            cur["saturation_fraction"] = float(sat.mean())
+        if t_cur is not None:
+            tc = np.asarray(t_cur, dtype=float)
+            if tc.size == ic.size:
+                ic = ic[(tc >= t_step) & np.isfinite(ic)]
+            else:
+                ic = ic[np.isfinite(ic)]
+        else:
+            ic = ic[np.isfinite(ic)]
+        if ic.size:                          # empty (non-None) array must degrade to None, not crash
+            cur["peak_current"] = float(np.max(np.abs(ic)))
+            if current_limit is not None:
+                sat = np.abs(ic) >= (current_limit - EPS)
+                cur["saturated"] = bool(sat.any())
+                cur["saturation_fraction"] = float(sat.mean())
 
     dt = np.diff(t)
     sample_rate = float(1.0 / np.median(dt)) if dt.size and np.median(dt) > EPS else None

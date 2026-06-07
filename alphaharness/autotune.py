@@ -22,12 +22,15 @@ def shooter_cost(m: dict) -> float:
     |SSE| penalizes not reaching target (-> higher kP). Uses always-defined metrics so
     the surface stays smooth even when settle-to-band is undefined (SSE present).
     """
-    rise = m.get("rise_time_s") or 2.5
-    overshoot = m.get("overshoot_pct") or 0.0
-    sse = abs(m.get("steady_state_error_pct") or 0.0)
-    # stability guard: a wild capture (huge overshoot / divergence) gets a big finite cost
-    if overshoot > 150:
-        return 50.0 + overshoot / 100.0
+    rt = m.get("rise_time_s")
+    rise = 2.5 if rt is None else rt          # explicit None: a real 0.0 rise is best-case, not "missing"
+    ov = m.get("overshoot_pct")
+    overshoot = 0.0 if ov is None else ov
+    sv = m.get("steady_state_error_pct")
+    sse = abs(0.0 if sv is None else sv)
+    # Monotone in overshoot: the quadratic already gives divergence a huge finite cost.
+    # (The old `if overshoot>150: 50+overshoot/100` was a DOWNWARD cliff that turned
+    #  divergence into a local minimum the greedy search would converge to.)
     return rise + 0.012 * overshoot * overshoot + 0.05 * sse
 
 
@@ -52,8 +55,14 @@ def autotune(evaluate, *, seed, bounds, steps, cost=shooter_cost,
     history = []
 
     def ev(g):
-        m = evaluate(g)
-        c = cost(m)
+        try:
+            m = evaluate(g)
+            c = cost(m)
+        except Exception as e:
+            # a transient capture failure (e.g. too few samples) must not abort the
+            # whole tune — score the candidate as bad and keep going so we always
+            # return a best (and the caller can restore a known-good gain set).
+            m, c = {"_error": str(e)}, 1e6
         history.append({"gains": {d: g[d] for d in dims}, "cost": c,
                         "overshoot_pct": m.get("overshoot_pct"),
                         "rise_time_s": m.get("rise_time_s"),

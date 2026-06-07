@@ -54,7 +54,13 @@ def second_order_step(tau: float, a: float, b: float, zeta: float, wn: float) ->
 def analytic_ground_truth(zeta: float, wn: float, step: float) -> dict:
     """Textbook closed-form metrics for the underdamped step (for comparison)."""
     gt = {"zeta": zeta, "wn_rad_s": wn}
-    if zeta < 1.0:
+    if zeta <= 1e-9 or wn <= 0:
+        # undamped / marginal: settle = 4/(zeta*wn) -> division by zero; report cleanly
+        gt["overshoot_pct"] = 100.0
+        gt["regime"] = "undamped/marginal"
+        gt["settle_2pct_s"] = None
+        gt["settle_5pct_s"] = None
+    elif zeta < 1.0:
         wd = wn * math.sqrt(1 - zeta**2)
         Mp = math.exp(-zeta * math.pi / math.sqrt(1 - zeta**2))
         gt["overshoot_pct"] = 100.0 * Mp
