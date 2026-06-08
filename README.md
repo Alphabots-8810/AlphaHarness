@@ -1,4 +1,4 @@
-# AlphaHarness 🅰️
+# AlphaHarness
 
 **面向 FRC 的只读 NT4 遥测 + step-response 指标层,通过 MCP 暴露给 Claude。**
 
