@@ -47,7 +47,7 @@ async def main():
 
             r = _payload(await session.call_tool("capture_step_response", {
                 "measurement_key": "/AdvantageKit/RealOutputs/Shooter/MeasuredRPS",
-                "setpoint_key": "/Tuning/SHooterRPS",
+                "setpoint_key": "/Tuning/ShooterRPS",
                 "duration_s": 5.0,
                 "current_key": "/AdvantageKit/RealOutputs/Shooter/StatorCurrent",
                 "current_limit": 60.0,

@@ -35,7 +35,7 @@ alphaharness-sim --once --zeta 0.5 --wn 18 --target 60 --warmup 3 --noise 0.3
 python -m tests.e2e_sim        # 打印实测指标 vs 闭式 ground truth
 ```
 
-`alphaharness-sim` 发的是**和真车一模一样的拓扑**——稀疏的、on-change 的 setpoint 边沿(`/Tuning/SHooterRPS`)加稠密的 ~50 Hz 测量(`/AdvantageKit/RealOutputs/Shooter/MeasuredRPS`)——所以这里能通过的,走的就是生产环境的同一条接入路径。
+`alphaharness-sim` 发的是**和真车一模一样的拓扑**——稀疏的、on-change 的 setpoint 边沿(`/Tuning/ShooterRPS`)加稠密的 ~50 Hz 测量(`/AdvantageKit/RealOutputs/Shooter/MeasuredRPS`)——所以这里能通过的,走的就是生产环境的同一条接入路径。
 
 ### 离线臂(scope b —— 不需机器人、不需实时连接)
 
@@ -64,7 +64,7 @@ python -m pytest tests/test_wpilog.py -q                                      # 
 | `./gradlew simulateJava` | `connect(server="127.0.0.1")` |
 | 真 roboRIO | `connect(team=8810)` |
 
-对真车:先起 capture,再由人来命令 step(比如在 AdvantageScope Tuning Mode 里设 `/Tuning/SHooterRPS`)。AlphaHarness 会看到稀疏边沿 + 稠密响应。**同一时刻只能有一个写 `/Tuning` 的人**——别让人和 harness 抢同一个 key。
+对真车:先起 capture,再由人来命令 step(比如在 AdvantageScope Tuning Mode 里设 `/Tuning/ShooterRPS`)。AlphaHarness 会看到稀疏边沿 + 稠密响应。**同一时刻只能有一个写 `/Tuning` 的人**——别让人和 harness 抢同一个 key。
 
 ---
 
@@ -83,7 +83,7 @@ python -m pytest tests/test_wpilog.py -q                                      # 
 ## 测试
 
 ```bash
-python -m pytest tests/ -v          # 34 个单测:metrics + step-resolution + wpilog + autotune + 回归
+python -m pytest tests/ -v          # 35 个单测:metrics + step-resolution + wpilog + autotune + 回归
 python -m tests.e2e_sim             # 完整 NT4 线 vs 解析 ground truth(需 sim --once)
 python -m tests.e2e_mcp             # MCP 传输层端到端(需 sim --period 4)
 python -m tests.demo_autotune       # NT 线上实时自整定(需 alphaharness-plant 在跑)

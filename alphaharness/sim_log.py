@@ -25,7 +25,7 @@ def write_step_log(path: str, *, zeta: float = 0.5, wn: float = 18.0,
                    target: float = 60.0, warmup: float = 1.0, duration: float = 4.0,
                    rate: float = 50.0, noise: float = 0.3, quant: float = 0.05,
                    seed: int = 0,
-                   setpoint_key: str = "/Tuning/SHooterRPS",
+                   setpoint_key: str = "/Tuning/ShooterRPS",
                    measurement_key: str = "/AdvantageKit/RealOutputs/Shooter/MeasuredRPS",
                    current_key: str = "/AdvantageKit/RealOutputs/Shooter/StatorCurrent",
                    current_limit: float = 60.0) -> dict:

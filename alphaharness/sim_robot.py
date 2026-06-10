@@ -9,7 +9,7 @@ robot and zero physics-sim setup.
 
 CRITICAL (advisor seam #1): it publishes the *same shape and rate the real
 robot does* —
-  * setpoint  -> sparse, on-change edge   (/Tuning/SHooterRPS)
+  * setpoint  -> sparse, on-change edge   (/Tuning/ShooterRPS)
   * measured  -> dense ~50 Hz trajectory  (/AdvantageKit/RealOutputs/Shooter/MeasuredRPS)
 so green tests exercise the exact ingestion path production uses, not a fiction.
 
@@ -92,7 +92,7 @@ def main():
     ap.add_argument("--noise", type=float, default=0.3, help="gaussian noise std (units)")
     ap.add_argument("--quant", type=float, default=0.05, help="quantization step (units)")
     ap.add_argument("--seed", type=int, default=0)
-    ap.add_argument("--setpoint-key", default="/Tuning/SHooterRPS")
+    ap.add_argument("--setpoint-key", default="/Tuning/ShooterRPS")
     ap.add_argument("--measurement-key",
                     default="/AdvantageKit/RealOutputs/Shooter/MeasuredRPS")
     ap.add_argument("--current-key",

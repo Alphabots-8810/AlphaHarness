@@ -10,7 +10,7 @@ from alphaharness.autotune import autotune, shooter_cost
 from alphaharness.nt_client import NTClient
 
 MEAS = "/AdvantageKit/RealOutputs/Shooter/MeasuredRPS"
-SP = "/Tuning/SHooterRPS"
+SP = "/Tuning/ShooterRPS"
 CUR = "/AdvantageKit/RealOutputs/Shooter/StatorCurrent"
 TARGET = 60.0
 

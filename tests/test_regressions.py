@@ -127,6 +127,24 @@ def test_R2_L2_second_order_wn_zero_no_crash():
         assert second_order_step(0.5, 0.0, 60.0, z, 0.0) == 0.0
 
 
+# ---- round 3 (2026-06-10 review) ----
+
+# R3-M1 — a SELF-commanded step whose measurement never moved must raise, not be
+# scored as a flat trace (wrong setpoint key / tuningMode off used to "succeed":
+# every candidate scored sse=-100% and autotune returned its seed with no error)
+def test_R3_M1_active_capture_flat_trace_raises():
+    rng = np.random.default_rng(7)
+    t = np.linspace(0, 2.2, 110)
+    flat = rng.normal(0.0, 0.3, t.size)                  # robot never consumed the step
+    with pytest.raises(ValueError, match="never moved"):
+        NTClient._active_step_onset(t, flat, "/Tuning/ShooterRPS",
+                                    "/AK/MeasuredRPS", 60.0)
+    real = np.where(t < 0.3, 0.0, 60.0)                  # a real response still resolves
+    ts = NTClient._active_step_onset(t, real, "/Tuning/ShooterRPS",
+                                     "/AK/MeasuredRPS", 60.0)
+    assert 0.25 < ts < 0.45
+
+
 # R2-L3 — extract_signals must return each channel timestamp-sorted
 def test_R2_L3_extract_signals_sorts():
     from wpiutil import DataLogWriter

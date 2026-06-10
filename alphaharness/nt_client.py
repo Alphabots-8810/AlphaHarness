@@ -45,14 +45,16 @@ class NTClient:
         server="127.0.0.1" for `simulateJava` or the synthetic robot;
         team=8810 for the real roboRIO (mDNS roborio-8810-frc.local).
         """
+        if self._multi is not None or self.target_desc is not None:
+            self.disconnect()                  # re-entry: drop the old session first
         self.inst.startClient4(self.identity)
         p = port or ntcore.NetworkTableInstance.kDefaultPort4
         if team is not None:
             self.inst.setServerTeam(team, p)
-            self.target_desc = f"team {team}:{p}"
+            desc = f"team {team}:{p}"
         else:
             self.inst.setServer(server or "127.0.0.1", p)
-            self.target_desc = f"{server or '127.0.0.1'}:{p}"
+            desc = f"{server or '127.0.0.1'}:{p}"
 
         # discover all topics (topics-only = metadata, no values streamed)
         self._multi = ntcore.MultiSubscriber(
@@ -63,9 +65,11 @@ class NTClient:
         while time.time() < deadline and not self.inst.isConnected():
             time.sleep(0.05)
         if not self.inst.isConnected():
+            self.disconnect()                  # don't leave a half-started client behind
             raise ConnectionError(
-                f"NT4 connect to {self.target_desc} timed out after {timeout}s "
+                f"NT4 connect to {desc} timed out after {timeout}s "
                 f"(is the robot/sim/synthetic running?)")
+        self.target_desc = desc
         time.sleep(0.4)  # let topic announcements arrive before list/capture
         return {"connected": True, "target": self.target_desc,
                 "topics_known": len(self.inst.getTopicInfo())}
@@ -78,6 +82,7 @@ class NTClient:
             self._multi.close()
             self._multi = None
         self.inst.stopClient()
+        self.target_desc = None
 
     def connected(self) -> bool:
         return self.inst.isConnected()
@@ -226,13 +231,31 @@ class NTClient:
             i_cur = np.array([v.value for v in cq], float)
         if t_meas.size < 3:
             raise ValueError(f"only {t_meas.size} samples on '{measurement_key}'")
-        t_step = self._onset_from_measurement(t_meas, y_meas)
-        if t_step is None:                             # pre-zeroed then stepped, so it should move
-            t_step = float(t_meas[0])
+        t_step = self._active_step_onset(t_meas, y_meas, setpoint_key, measurement_key, target)
         m = compute_step_response_metrics(t_meas, y_meas, t_step, float(target),
                                           t_cur=t_cur, i_cur=i_cur, current_limit=current_limit)
         m["_step_source"] = "active_command"
         return m
+
+    @staticmethod
+    def _active_step_onset(t_meas, y_meas, setpoint_key, measurement_key, target):
+        """Onset of a SELF-commanded step. Raises if the measurement never moved.
+
+        We pre-zeroed and commanded the step ourselves, so the measurement MUST move.
+        A flat trace means the robot is not consuming the setpoint (wrong key, or
+        tuningMode off) — scoring it anyway returns a clean-looking metrics dict
+        (sse = -100%), and an autotune over it 'succeeds' straight back to its seed
+        gains with no error. Mirror the passive path (_resolve_step), which already
+        refuses idle windows, and refuse loudly here too.
+        """
+        t_step = NTClient._onset_from_measurement(t_meas, y_meas)
+        if t_step is None:
+            raise ValueError(
+                f"commanded {setpoint_key} -> {target} but '{measurement_key}' never "
+                "moved. Is the robot consuming this setpoint key (correct key, "
+                "tuningMode on, human-enabled)? On the real robot the tunable is e.g. "
+                "/Tuning/Shooter/Drum/Setpoint — the default here is the sim's key.")
+        return float(t_step)
 
     @staticmethod
     def _edge_time(sp_samples):

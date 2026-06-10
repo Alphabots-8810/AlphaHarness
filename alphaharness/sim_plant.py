@@ -1,9 +1,15 @@
 """AlphaHarness — closed-loop flywheel NT4 server (the auto-tune demo target).
 
 Wraps FlywheelPlant behind NT: reads the live gains AlphaHarness writes to
-/Tuning/Shooter/* and the setpoint at /Tuning/SHooterRPS, runs the PIDF + plant
+/Tuning/Shooter/* and the setpoint at /Tuning/ShooterRPS, runs the PIDF + plant
 each loop, and publishes the response. Because the response DEPENDS on the gains,
 the auto-tuner can actually optimize against it — unlike sim_robot.py (fixed play).
+
+The setpoint topic has exactly ONE writer (the harness/human). The dense
+AdvantageScope-friendly echo goes to a SEPARATE output key: re-publishing on the
+/Tuning key itself raced the harness (read sp -> harness writes -> stale echo
+overwrites -> plant re-reads its own echo = the new setpoint is lost for good;
+measured ~1% of writes latching wrong).
 
     python -m alphaharness.sim_plant          # then run autotune against 127.0.0.1
 """
@@ -29,7 +35,9 @@ def main():
     ap.add_argument("--seed", type=int, default=0)
     ap.add_argument("--meas-key", default="/AdvantageKit/RealOutputs/Shooter/MeasuredRPS")
     ap.add_argument("--cur-key", default="/AdvantageKit/RealOutputs/Shooter/StatorCurrent")
-    ap.add_argument("--sp-key", default="/Tuning/SHooterRPS")
+    ap.add_argument("--sp-key", default="/Tuning/ShooterRPS")
+    ap.add_argument("--sp-echo-key", default="/AdvantageKit/RealOutputs/Shooter/SetpointRPS",
+                    help="dense setpoint echo for AdvantageScope (NEVER the /Tuning key itself)")
     args = ap.parse_args()
 
     rng = np.random.default_rng(args.seed)
@@ -41,8 +49,11 @@ def main():
 
     meas_pub = inst.getDoubleTopic(args.meas_key).publish()
     cur_pub = inst.getDoubleTopic(args.cur_key).publish()
-    sp_pub = inst.getDoubleTopic(args.sp_key).publish()
-    sp_pub.set(0.0)
+    sp_echo_pub = inst.getDoubleTopic(args.sp_echo_key).publish()
+    # seed the /Tuning topic ONCE so it exists for subscribers, then never write it
+    # again from this side — the harness/human owns it (see module docstring)
+    sp_seed_pub = inst.getDoubleTopic(args.sp_key).publish()
+    sp_seed_pub.set(0.0)
 
     # publish seed gains so the topics exist, and subscribe to read client overrides
     gain_pubs, gain_subs = {}, {}
@@ -69,7 +80,7 @@ def main():
                 wn = round(wn / args.quant) * args.quant
             meas_pub.set(float(wn))
             cur_pub.set(float(ia))
-            sp_pub.set(float(sp))     # republish setpoint dense (so it shows in AdvantageScope)
+            sp_echo_pub.set(float(sp))   # dense echo on a separate OUTPUT key, not /Tuning
             inst.flush()
             time.sleep(dt)
     except KeyboardInterrupt:

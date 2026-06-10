@@ -13,7 +13,7 @@ from alphaharness.sim_log import write_step_log
 from alphaharness.wpilog_reader import analyze_step, list_entries
 
 MEAS = "/AdvantageKit/RealOutputs/Shooter/MeasuredRPS"
-SETP = "/Tuning/SHooterRPS"
+SETP = "/Tuning/ShooterRPS"
 CUR = "/AdvantageKit/RealOutputs/Shooter/StatorCurrent"
 
 

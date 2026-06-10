@@ -11,7 +11,7 @@ import sys
 from alphaharness.nt_client import NTClient
 
 MEAS = "/AdvantageKit/RealOutputs/Shooter/MeasuredRPS"
-SETP = "/Tuning/SHooterRPS"
+SETP = "/Tuning/ShooterRPS"
 CUR = "/AdvantageKit/RealOutputs/Shooter/StatorCurrent"
 
 

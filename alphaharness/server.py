@@ -161,7 +161,7 @@ def _run_autotune_shooter(target_rps, budget, seed_kP, seed_kD,
 async def autotune_shooter(target_rps: float = 60.0, budget: int = 24,
                            seed_kP: float = 3.0, seed_kD: float = 0.0,
                            measurement_key: str = "/AdvantageKit/RealOutputs/Shooter/MeasuredRPS",
-                           setpoint_key: str = "/Tuning/SHooterRPS",
+                           setpoint_key: str = "/Tuning/ShooterRPS",
                            current_key: str = "/AdvantageKit/RealOutputs/Shooter/StatorCurrent") -> dict:
     """Autonomously tune the shooter kP/kD: perturb → measure → score → set_gain → repeat.
 
